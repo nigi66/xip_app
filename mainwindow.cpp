@@ -91,7 +91,7 @@ void MainWindow::setup3DView()
 
     Qt3DRender::QCamera *camera = view3D->camera();
     camera->lens()->setPerspectiveProjection(45.0f, 4.0f/3.0f, 0.1f, 1000.0f);
-    camera->setPosition(QVector3D(0, 0, 100));
+    camera->setPosition(QVector3D(0, 500, 0));
     camera->setViewCenter(QVector3D(0, 0, 0));
 
     Qt3DCore::QEntity *lightEntity = new Qt3DCore::QEntity(rootEntity);
