@@ -6,6 +6,9 @@
 #include <QMessageBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QBuffer>
+#include <QtCore>
+
 #include <Qt3DRender/QCamera>
 #include <Qt3DExtras/QOrbitCameraController>
 #include <Qt3DCore/QTransform>
@@ -93,7 +96,7 @@ void MainWindow::setup3DView() {
     // Setup camera: place it back along the Z-axis so it sees the slice volume.
     Qt3DRender::QCamera *camera = view3D->camera();
     camera->lens()->setPerspectiveProjection(45.0f, 4.0f/3.0f, 0.1f, 2000.0f);
-    camera->setPosition(QVector3D(0, 0, 1000));   // along Z-axis
+    camera->setPosition(QVector3D(0, 0, 600));   // along Z-axis
     camera->setViewCenter(QVector3D(0, 0, 0));
 
     // Setup a simple white point light.
@@ -116,7 +119,6 @@ void MainWindow::setup3DView() {
     view3D->setRootEntity(rootEntity);
 
     container3D->setFocusPolicy(Qt::StrongFocus);
-    container3D->setAttribute(Qt::WA_TransparentForMouseEvents, false);
     container3D->setMouseTracking(true);
     container3D->setFocus();
 
@@ -186,64 +188,69 @@ QImage MainWindow::matToQImage(const cv::Mat &mat) {
     return QImage();
 }
 
-#include <QBuffer>
+
+#include <QTemporaryFile>
+#include <QStandardPaths>
+#include <Qt3DExtras/QCuboidMesh>
+
 
 void MainWindow::update3DView() {
-    // Clear previous slice entities (delete all children of the rootEntity that are QNodes)
-    const auto children = rootEntity->children();
-    for (QObject* childObj : children) {
-        Qt3DCore::QNode *childNode = qobject_cast<Qt3DCore::QNode*>(childObj);
-        if (childNode)
-            delete childNode;
+    if (sliceContainerEntity) {
+        delete sliceContainerEntity;
+        sliceContainerEntity = nullptr;
     }
+
     if (imageSlices.isEmpty())
         return;
 
-    // Adjust stacking parameters:
+    sliceContainerEntity = new Qt3DCore::QEntity(rootEntity);
+
     const int numSlices = imageSlices.size();
-    const float spacing = 20.0f; // larger spacing to see separate layers clearly
+    const float sliceSpacing = voxelSize.z(); // Z voxel spacing
     const int half = numSlices / 2;
 
-    // For each image slice, create a textured plane.
     for (int i = 0; i < numSlices; ++i) {
         const cv::Mat &slice = imageSlices[i];
-
-        // Convert OpenCV image to QImage.
         QImage qimg = matToQImage(slice).convertToFormat(QImage::Format_RGBA8888);
 
-        // Save QImage to a temporary file.
-        QString tmpPath = QString("slice_%1.png").arg(i);
-        if (!qimg.save(tmpPath))
-            qDebug() << "Failed to save" << tmpPath;
+        // Save to temp file
+        QString tmpDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+        QString filename = tmpDir + QString("/slice_%1.png").arg(i);
+        qimg.save(filename);
 
-        // Create texture and load it from file.
-        auto *texture = new Qt3DRender::QTexture2D(rootEntity);
+        // Texture
+        auto *texture = new Qt3DRender::QTexture2D();
         auto *textureImage = new Qt3DRender::QTextureImage();
-        textureImage->setSource(QUrl::fromLocalFile(tmpPath));
+        textureImage->setSource(QUrl::fromLocalFile(filename));
         texture->addTextureImage(textureImage);
-        texture->setFormat(Qt3DRender::QAbstractTexture::RGBA8_UNorm); // ensure alpha channel
+        texture->setFormat(Qt3DRender::QAbstractTexture::RGBA8_UNorm);
+        texture->setMinificationFilter(Qt3DRender::QAbstractTexture::Linear);
+        texture->setMagnificationFilter(Qt3DRender::QAbstractTexture::Linear);
+        texture->setGenerateMipMaps(true);
 
-        // Create a plane mesh using the slice dimensions.
-        auto *planeMesh = new Qt3DExtras::QPlaneMesh();
-        planeMesh->setWidth(slice.cols);
-        planeMesh->setHeight(slice.rows);
-
-        // Create a material that uses the texture.
         auto *material = new Qt3DExtras::QTextureMaterial();
         material->setTexture(texture);
 
-        // Create an entity for this slice.
-        Qt3DCore::QEntity *sliceEntity = new Qt3DCore::QEntity(rootEntity);
-        sliceEntity->addComponent(planeMesh);
-        sliceEntity->addComponent(material);
+        auto *boxMesh = new Qt3DExtras::QCuboidMesh();
+        boxMesh->setXExtent(qimg.width() * voxelSize.x());
+        boxMesh->setYExtent(qimg.height() * voxelSize.y());
+        boxMesh->setZExtent(5.0f);  // 1 cm thickness
 
-        // Position each slice along the Y axis.
+
+        // Position
         auto *transform = new Qt3DCore::QTransform();
-        float yPos = (i - half) * spacing;
-        transform->setTranslation(QVector3D(0, yPos, 0));
+        float yPos = (i - half) * sliceSpacing;
+        transform->setTranslation(QVector3D(0, 0, yPos));
+
+        // Entity
+        auto *sliceEntity = new Qt3DCore::QEntity(sliceContainerEntity);
+        sliceEntity->addComponent(boxMesh);
+        sliceEntity->addComponent(material);
         sliceEntity->addComponent(transform);
     }
 }
+
+
 
 void MainWindow::onSliderChanged(int value) {
     if (value >= 0 && value < imageSlices.size()) {

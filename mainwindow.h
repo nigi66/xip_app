@@ -13,6 +13,7 @@
 #include <Qt3DExtras/Qt3DWindow>
 #include <Qt3DCore/QEntity>
 #include <Qt3DExtras/QOrbitCameraController>
+#include <QVector3D>
 
 namespace Ui {
 class MainWindow;
@@ -51,10 +52,17 @@ private:
     // Your helper:
     QImage matToQImage(const cv::Mat &mat);
 
+    Qt3DCore::QEntity* sliceContainerEntity = nullptr;
+    QVector3D voxelSize = QVector3D(1.0f, 1.0f, 5.0f); // x: width, y: height, z: slice spacing
+
+
+
 private slots:
     void openImageSet();
     void loadAndDisplayImages();
     void onSliderChanged(int value);
+
+
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
 
