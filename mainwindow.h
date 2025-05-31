@@ -37,6 +37,8 @@ private:
     QVector<cv::Mat> imageSlices;
     int currentIndex = 0;
 
+    cv::Mat3b volumeAsMat3b();
+
     // Qt3D members:
     Qt3DExtras::Qt3DWindow *view3D;
     QWidget *container3D;
@@ -51,20 +53,20 @@ private:
 
     // Your helper:
     QImage matToQImage(const cv::Mat &mat);
+    void addCoordinateAxes(Qt3DCore::QEntity *parent);
+    QImage drawAxisLines(const QImage &image, int vertical, int horizontal, QColor verticalColor, QColor horizontalColor);
+
 
     Qt3DCore::QEntity* sliceContainerEntity = nullptr;
-    QVector3D voxelSize = QVector3D(1.0f, 1.0f, 5.0f); // x: width, y: height, z: slice spacing
 
+    QVector3D voxelSize = QVector3D(1.0f, 1.0f, 1.0f); // x: width, y: height, z: slice spacing
 
 
 private slots:
     void openImageSet();
     void loadAndDisplayImages();
     void onSliderChanged(int value);
-
-
-protected:
-    bool eventFilter(QObject *obj, QEvent *event) override;
+    void openEditWindow();
 
 };
 

@@ -8,6 +8,8 @@
 #include <QHBoxLayout>
 #include <QBuffer>
 #include <QtCore>
+#include <QPainter>
+#include <QPen>
 
 #include <Qt3DRender/QCamera>
 #include <Qt3DExtras/QOrbitCameraController>
@@ -50,7 +52,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Create Qt3D window and container for the 3D view.
     view3D = new Qt3DExtras::Qt3DWindow();
     container3D = QWidget::createWindowContainer(view3D);
-    container3D->setMinimumSize(400, 300); // adjust size as needed
+    //container3D->setMinimumSize(400, 300); // adjust size as needed
 
     // Make sure the container accepts mouse events.
     container3D->setFocusPolicy(Qt::StrongFocus);
@@ -75,6 +77,11 @@ void MainWindow::setupMenus() {
     connect(openSetAct, &QAction::triggered, this, &MainWindow::openImageSet);
     fileMenu->addSeparator();
     fileMenu->addAction("E&xit", this, &MainWindow::close);
+
+    QMenu *editMenu = menuBar()->addMenu("&Edit");
+    QAction *editImageAct = editMenu->addAction("Edit Current &Image...");
+    connect(editImageAct, &QAction::triggered, this, &MainWindow::openEditWindow);
+
 }
 
 void MainWindow::setupSlider() {
@@ -91,12 +98,14 @@ void MainWindow::setup3DView() {
     // Create the root entity for the 3D scene.
     rootEntity = new Qt3DCore::QEntity();
 
+    addCoordinateAxes(rootEntity);
+
     view3D->defaultFrameGraph()->setClearColor(QColor(128, 128, 128));
 
     // Setup camera: place it back along the Z-axis so it sees the slice volume.
     Qt3DRender::QCamera *camera = view3D->camera();
     camera->lens()->setPerspectiveProjection(45.0f, 4.0f/3.0f, 0.1f, 2000.0f);
-    camera->setPosition(QVector3D(0, 0, 600));   // along Z-axis
+    camera->setPosition(QVector3D(0, 0, 1000));   // along Z-axis
     camera->setViewCenter(QVector3D(0, 0, 0));
 
     // Setup a simple white point light.
@@ -121,8 +130,8 @@ void MainWindow::setup3DView() {
     container3D->setFocusPolicy(Qt::StrongFocus);
     container3D->setMouseTracking(true);
     container3D->setFocus();
-
 }
+
 
 void MainWindow::openImageSet() {
     QStringList fileNames = QFileDialog::getOpenFileNames(this,
@@ -157,28 +166,50 @@ void MainWindow::openImageSet() {
     loadAndDisplayImages();
 }
 
+
 void MainWindow::loadAndDisplayImages() {
     if (imageSlices.isEmpty() || currentIndex < 0 || currentIndex >= imageSlices.size())
         return;
 
-    const cv::Mat &img = imageSlices[currentIndex];
-    if (img.empty())
-        return;
+    const int depth = imageSlices.size();
+    const int height = imageSlices[0].rows;
+    const int width = imageSlices[0].cols;
 
-    // Display the grayscale slice and its processed versions in the 2D views.
-    views[0]->setPixmap(QPixmap::fromImage(matToQImage(img)));
-    cv::Mat edges, thresh;
-    cv::Canny(img, edges, 100, 200);
-    cv::threshold(img, thresh, 120, 255, cv::THRESH_BINARY);
-    views[1]->setPixmap(QPixmap::fromImage(matToQImage(edges)));
-    views[2]->setPixmap(QPixmap::fromImage(matToQImage(thresh)));
+    // Axial view (already loaded)
+    const cv::Mat &axial = imageSlices[currentIndex];
+    // Axial view: XY plane
+    views[0]->setPixmap(QPixmap::fromImage(
+        drawAxisLines(matToQImage(axial), currentIndex, currentIndex, Qt::red, Qt::green)));
 
-    // Update the 3D view with all slices.
+
+    // Coronal view: YZ slice (height vs depth)
+    cv::Mat coronal(height, depth, CV_8UC1);
+    for (int z = 0; z < depth; ++z)
+        for (int y = 0; y < height; ++y)
+            coronal.at<uchar>(y, z) = imageSlices[z].at<uchar>(y, currentIndex);  // X = currentIndex
+
+    // Coronal view: YZ plane
+    views[1]->setPixmap(QPixmap::fromImage(
+        drawAxisLines(matToQImage(coronal), currentIndex, currentIndex, Qt::blue, Qt::green)));
+
+    // Sagittal view: XZ slice (width vs depth)
+    cv::Mat sagittal(depth, width, CV_8UC1);
+    for (int z = 0; z < depth; ++z)
+        for (int x = 0; x < width; ++x)
+            sagittal.at<uchar>(z, x) = imageSlices[z].at<uchar>(currentIndex, x);  // Y = currentIndex
+
+    // Sagittal view: XZ plane
+    views[2]->setPixmap(QPixmap::fromImage(
+        drawAxisLines(matToQImage(sagittal), currentIndex, currentIndex, Qt::blue, Qt::red)));
+
+
+    // Update 3D view
     update3DView();
 
     statusBar()->showMessage(QString("Showing slice %1 / %2")
         .arg(currentIndex + 1).arg(imageSlices.size()));
 }
+
 
 QImage MainWindow::matToQImage(const cv::Mat &mat) {
     if (mat.type() == CV_8UC1)
@@ -234,7 +265,7 @@ void MainWindow::update3DView() {
         auto *boxMesh = new Qt3DExtras::QCuboidMesh();
         boxMesh->setXExtent(qimg.width() * voxelSize.x());
         boxMesh->setYExtent(qimg.height() * voxelSize.y());
-        boxMesh->setZExtent(5.0f);  // 1 cm thickness
+        boxMesh->setZExtent(1.0f);  // 1 cm thickness
 
 
         // Position
@@ -251,7 +282,6 @@ void MainWindow::update3DView() {
 }
 
 
-
 void MainWindow::onSliderChanged(int value) {
     if (value >= 0 && value < imageSlices.size()) {
         currentIndex = value;
@@ -260,10 +290,104 @@ void MainWindow::onSliderChanged(int value) {
 }
 
 
-bool MainWindow::eventFilter(QObject *obj, QEvent *event) {
-    if (obj == container3D && (event->type() == QEvent::MouseMove || event->type() == QEvent::MouseButtonPress)) {
-        qDebug() << "Mouse event in 3D container!";
+cv::Mat3b MainWindow::volumeAsMat3b() {
+    int depth = imageSlices.size();
+    int height = imageSlices[0].rows;
+    int width = imageSlices[0].cols;
+
+    cv::Mat3b volume(depth, height, width);  // 3D matrix
+
+    for (int z = 0; z < depth; ++z) {
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                volume(z, y, x) = imageSlices[z].at<uchar>(y, x);
+            }
+        }
     }
-    return QMainWindow::eventFilter(obj, event);
+
+    return volume;
+}
+
+
+
+#include <Qt3DExtras/QCylinderMesh>
+#include <Qt3DExtras/QPhongMaterial>
+#include <Qt3DCore/QTransform>
+
+void MainWindow::addCoordinateAxes(Qt3DCore::QEntity *parent) {
+    float arrowLength = 200.0f;
+    float arrowRadius = 0.5f;
+
+    struct Axis {
+        QVector3D direction;
+        QColor color;
+    };
+
+    QVector<Axis> axes = {
+        { QVector3D(1, 0, 0), Qt::red   }, // X
+        { QVector3D(0, 1, 0), Qt::green }, // Y
+        { QVector3D(0, 0, 1), Qt::blue  }  // Z
+    };
+
+    for (const Axis &axis : axes) {
+        auto *cylinder = new Qt3DExtras::QCylinderMesh();
+        cylinder->setLength(arrowLength);
+        cylinder->setRadius(arrowRadius);
+        cylinder->setRings(10);
+        cylinder->setSlices(20);
+
+        auto *material = new Qt3DExtras::QPhongMaterial();
+        material->setDiffuse(axis.color);
+
+        auto *transform = new Qt3DCore::QTransform();
+
+        // Align cylinder with axis
+        QQuaternion rotation = QQuaternion::rotationTo(QVector3D(0, 1, 0), axis.direction);
+        transform->setRotation(rotation);
+        transform->setTranslation(axis.direction.normalized() * arrowLength / 2.0f);
+
+        auto *arrowEntity = new Qt3DCore::QEntity(parent);
+        arrowEntity->addComponent(cylinder);
+        arrowEntity->addComponent(material);
+        arrowEntity->addComponent(transform);
+    }
+}
+
+
+QImage MainWindow::drawAxisLines(const QImage &image, int vertical, int horizontal,
+                                  QColor verticalColor, QColor horizontalColor) {
+    QImage annotated = image.convertToFormat(QImage::Format_ARGB32);
+    QPainter painter(&annotated);
+
+    if (vertical >= 0 && vertical < annotated.width()) {
+        painter.setPen(QPen(verticalColor, 1));
+        painter.drawLine(vertical, 0, vertical, annotated.height());
+    }
+
+    if (horizontal >= 0 && horizontal < annotated.height()) {
+        painter.setPen(QPen(horizontalColor, 1));
+        painter.drawLine(0, horizontal, annotated.width(), horizontal);
+    }
+
+    return annotated;
+}
+
+
+#include "editwindow.h"  // You'll create this class
+
+void MainWindow::openEditWindow() {
+    if (imageSlices.isEmpty()) {
+        QMessageBox::warning(this, "Warning", "No images to edit.");
+        return;
+    }
+
+    EditWindow *editor = new EditWindow(QList<cv::Mat>::fromVector(imageSlices), nullptr);
+    connect(editor, &EditWindow::imagesEdited, this, [=](QList<cv::Mat> newImages) {
+        imageSlices = QVector<cv::Mat>(newImages.begin(), newImages.end());
+        loadAndDisplayImages();
+    });
+
+    editor->setAttribute(Qt::WA_DeleteOnClose);
+    editor->show();
 }
 
