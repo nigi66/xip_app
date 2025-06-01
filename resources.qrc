@@ -3,6 +3,12 @@
         <file>icons/open.png</file>
         <file>icons/segment.png</file>
         <file>icons/edit.png</file>
+	<file>icons/zoomin.png</file>
+	<file>icons/zoomout.png</file>
+	<file>icons/rotate_left.png</file>
+	<file>icons/rotate_right.png</file>
+	<file>icons/horizontal_flip.png</file>
+	<file>icons/vertical_flip.png</file>
 	<file>icons/detect.png</file>
 	<file>icons/customdetect.png</file>
         <file>icons/exit.png</file>

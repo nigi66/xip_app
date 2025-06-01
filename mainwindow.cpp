@@ -107,10 +107,37 @@ void MainWindow::setupMenus() {
     connect(customDetectAct, &QAction::triggered, this, &MainWindow::openCustomObjectDetectionWindow);
     detectionMenu->addAction(customDetectAct);
 
+    QAction *zoomInAct = new QAction(QIcon(":/icons/zoomin.png"), "Zoom &In", this);
+    connect(zoomInAct, &QAction::triggered, this, &MainWindow::zoomIn);
+
+    QAction *zoomOutAct = new QAction(QIcon(":/icons/zoomout.png"), "Zoom &Out", this);
+    connect(zoomOutAct, &QAction::triggered, this, &MainWindow::zoomOut);
+
+    QAction *rotateLeftAct = new QAction(QIcon(":/icons/rotate_left.png"), "Rotate Left", this);
+    connect(rotateLeftAct, &QAction::triggered, this, &MainWindow::rotateLeft);
+
+    QAction *rotateRightAct = new QAction(QIcon(":/icons/rotate_right.png"), "Rotate Right", this);
+    connect(rotateRightAct, &QAction::triggered, this, &MainWindow::rotateRight);
+
+    QAction *mirrorHorizontalAct = new QAction(QIcon(":/icons/horizontal_flip.png"), "Mirror Horizontally", this);
+    connect(mirrorHorizontalAct, &QAction::triggered, this, &MainWindow::mirrorHorizontal);
+
+    QAction *mirrorVerticalAct = new QAction(QIcon(":/icons/vertical_flip.png"), "Mirror Vertically", this);
+    connect(mirrorVerticalAct, &QAction::triggered, this, &MainWindow::mirrorVertical);
+
+
     // Optional: Add a toolbar with these actions
     QToolBar *toolbar = addToolBar("Main Toolbar");
     toolbar->addAction(openSetAct);
     toolbar->addAction(editImageAct);
+    toolbar->addAction(zoomInAct);
+    toolbar->addAction(zoomOutAct);
+    toolbar->addSeparator();
+    toolbar->addAction(rotateLeftAct);
+    toolbar->addAction(rotateRightAct);
+    toolbar->addAction(mirrorHorizontalAct);
+    toolbar->addAction(mirrorVerticalAct);
+
     toolbar->addAction(segmentImageAct);
     toolbar->addAction(detectAct);
     toolbar->addAction(customDetectAct);
@@ -213,9 +240,8 @@ void MainWindow::loadAndDisplayImages() {
     // Axial view (already loaded)
     const cv::Mat &axial = imageSlices[currentIndex];
     // Axial view: XY plane
-    views[0]->setPixmap(QPixmap::fromImage(
-        drawAxisLines(matToQImage(axial), currentIndex, currentIndex, Qt::red, Qt::green)));
-
+    QImage axialImage = drawAxisLines(matToQImage(axial), currentIndex, currentIndex, Qt::red, Qt::green);
+    views[0]->setPixmap(QPixmap::fromImage(axialImage.scaled(axialImage.size() * zoomFactor, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
 
     // Coronal view: YZ slice (height vs depth)
     cv::Mat coronal(height, depth, CV_8UC1);
@@ -223,9 +249,10 @@ void MainWindow::loadAndDisplayImages() {
         for (int y = 0; y < height; ++y)
             coronal.at<uchar>(y, z) = imageSlices[z].at<uchar>(y, currentIndex);  // X = currentIndex
 
-    // Coronal view: YZ plane
-    views[1]->setPixmap(QPixmap::fromImage(
-        drawAxisLines(matToQImage(coronal), currentIndex, currentIndex, Qt::blue, Qt::green)));
+    // Coronal view: YZ plane    
+    QImage coronalImage = drawAxisLines(matToQImage(coronal), currentIndex, currentIndex, Qt::blue, Qt::green);
+    views[1]->setPixmap(QPixmap::fromImage(coronalImage.scaled(coronalImage.size() * zoomFactor, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+
 
     // Sagittal view: XZ slice (width vs depth)
     cv::Mat sagittal(depth, width, CV_8UC1);
@@ -234,8 +261,9 @@ void MainWindow::loadAndDisplayImages() {
             sagittal.at<uchar>(z, x) = imageSlices[z].at<uchar>(currentIndex, x);  // Y = currentIndex
 
     // Sagittal view: XZ plane
-    views[2]->setPixmap(QPixmap::fromImage(
-        drawAxisLines(matToQImage(sagittal), currentIndex, currentIndex, Qt::blue, Qt::red)));
+    QImage sagittalImage = drawAxisLines(matToQImage(sagittal), currentIndex, currentIndex, Qt::blue, Qt::red);
+    views[2]->setPixmap(QPixmap::fromImage(sagittalImage.scaled(sagittalImage.size() * zoomFactor, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+
 
 
     // Update 3D view
@@ -486,5 +514,41 @@ void MainWindow::openCustomObjectDetectionWindow() {
 }
 
 
+// ///////////////////////// zooming and .....
+
+void MainWindow::zoomIn() {
+    zoomFactor *= 1.25f;  // Increase zoom by 25%
+    loadAndDisplayImages();
+}
+
+void MainWindow::zoomOut() {
+    zoomFactor /= 1.25f;  // Decrease zoom by 20%
+    loadAndDisplayImages();
+}
+
+
+void MainWindow::rotateLeft() {
+    for (cv::Mat &img : imageSlices)
+        cv::rotate(img, img, cv::ROTATE_90_COUNTERCLOCKWISE);
+    loadAndDisplayImages();
+}
+
+void MainWindow::rotateRight() {
+    for (cv::Mat &img : imageSlices)
+        cv::rotate(img, img, cv::ROTATE_90_CLOCKWISE);
+    loadAndDisplayImages();
+}
+
+void MainWindow::mirrorHorizontal() {
+    for (cv::Mat &img : imageSlices)
+        cv::flip(img, img, 1);  // horizontal flip
+    loadAndDisplayImages();
+}
+
+void MainWindow::mirrorVertical() {
+    for (cv::Mat &img : imageSlices)
+        cv::flip(img, img, 0);  // vertical flip
+    loadAndDisplayImages();
+}
 
 

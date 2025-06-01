@@ -68,6 +68,8 @@ private:
     QLabel *imageLabel;                     // Assuming you're showing the image here
     double scaleFactor = 1.0;
 
+    float zoomFactor = 1.0f;
+
 
 private slots:
     void openImageSet();
@@ -79,6 +81,15 @@ private slots:
 
     void openObjectDetectionWindow();
     void openCustomObjectDetectionWindow();
+
+    void zoomIn();
+    void zoomOut();
+    void rotateLeft();
+    void rotateRight();
+    void mirrorHorizontal();
+    void mirrorVertical();
+
+
 
 };
 
